@@ -1,0 +1,31 @@
+# Vagrant
+.vagrant/
+
+# Virtual machine disks
+*.qcow2
+*.img
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+secrets/
+.vault_pass
+vault.yml
+
+# Ansible
+*.retry
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+
+# OS metadata
+.DS_Store
+Thumbs.db

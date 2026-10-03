@@ -1,0 +1,6 @@
+<pool type='dir'>
+  <name>postgresql-lab</name>
+  <target>
+    <path>/servers/postgresql-ha-ops-lab</path>
+  </target>
+</pool>

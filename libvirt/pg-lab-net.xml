@@ -1,0 +1,5 @@
+<network>
+  <name>pg-lab-net</name>
+  <bridge name='virbr-pg' stp='on' delay='0'/>
+  <ip address='192.168.60.1' netmask='255.255.255.0'/>
+</network>
