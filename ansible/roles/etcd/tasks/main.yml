@@ -1,0 +1,79 @@
+---
+- name: Create etcd system user
+  ansible.builtin.user:
+    name: etcd
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/etcd
+    create_home: false
+
+- name: Create etcd directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: "0750"
+  loop:
+    - /etc/etcd
+    - /var/lib/etcd
+
+- name: Download etcd archive
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    checksum: "sha256:{{ etcd_sha256 }}"
+    mode: "0644"
+
+- name: Extract etcd archive
+  ansible.builtin.unarchive:
+    src: "/tmp/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/etcd-v{{ etcd_version }}-linux-amd64/etcd"
+
+- name: Install etcd binary
+  ansible.builtin.copy:
+    src: "/tmp/etcd-v{{ etcd_version }}-linux-amd64/etcd"
+    dest: /usr/local/bin/etcd
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  notify: Restart etcd
+
+- name: Install etcdctl binary
+  ansible.builtin.copy:
+    src: "/tmp/etcd-v{{ etcd_version }}-linux-amd64/etcdctl"
+    dest: /usr/local/bin/etcdctl
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+
+- name: Configure etcd
+  ansible.builtin.template:
+    src: etcd.yml.j2
+    dest: /etc/etcd/etcd.yml
+    owner: etcd
+    group: etcd
+    mode: "0640"
+  notify: Restart etcd
+
+- name: Install etcd systemd unit
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart etcd
+
+- name: Ensure etcd is enabled and running
+  ansible.builtin.systemd_service:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true

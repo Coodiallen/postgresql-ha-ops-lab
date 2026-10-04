@@ -1,0 +1,6 @@
+---
+etcd_version: "3.7.2"
+etcd_sha256: "3a3679bc51a4ee9d30bccea1da7cd4fe62c6fc1d2ca1255068d2c53bf3026135"
+etcd_cluster_token: "postgresql-ha-etcd"
+
+etcd_initial_cluster: "pg01=http://192.168.60.11:2380,pg02=http://192.168.60.12:2380,pg03=http://192.168.60.13:2380"
