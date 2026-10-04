@@ -1,0 +1,9 @@
+---
+appdb_name: "appdb"
+
+app_rw_username: "app_rw"
+app_ro_username: "app_ro"
+app_auditor_username: "app_auditor"
+
+proxy_vip: "192.168.60.20"
+pgbouncer_port: 6432

@@ -1,0 +1,6 @@
+---
+- name: Configure application schema and data
+  ansible.builtin.import_tasks: schema.yml
+
+- name: Configure database security and application objects
+  ansible.builtin.import_tasks: security.yml

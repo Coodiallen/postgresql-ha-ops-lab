@@ -1,0 +1,121 @@
+---
+- name: Copy database security configuration
+  ansible.builtin.copy:
+    src: security.sql
+    dest: /tmp/app-security.sql
+    mode: "0644"
+
+- name: Apply audit functions triggers and views
+  ansible.builtin.shell: |
+    PGPASSWORD='{{ patroni_superuser_password }}' psql \
+      -h {{ proxy_vip }} \
+      -p {{ pgbouncer_port }} \
+      -U postgres \
+      -d {{ appdb_name }} \
+      -v ON_ERROR_STOP=1 \
+      -f /tmp/app-security.sql
+  no_log: true
+  changed_when: false
+
+- name: Configure roles passwords and privileges
+  ansible.builtin.shell: |
+    PGPASSWORD='{{ patroni_superuser_password }}' psql \
+      -h {{ proxy_vip }} \
+      -p {{ pgbouncer_port }} \
+      -U postgres \
+      -d {{ appdb_name }} \
+      -v ON_ERROR_STOP=1 \
+      -v rw_password='{{ app_rw_password }}' \
+      -v ro_password='{{ app_ro_password }}' \
+      -v auditor_password='{{ app_auditor_password }}' <<'SQL'
+
+    SELECT format(
+      'CREATE ROLE {{ app_rw_username }} LOGIN PASSWORD %L',
+      :'rw_password'
+    )
+    WHERE NOT EXISTS (
+      SELECT FROM pg_roles
+      WHERE rolname = '{{ app_rw_username }}'
+    ) \gexec
+
+    SELECT format(
+      'CREATE ROLE {{ app_ro_username }} LOGIN PASSWORD %L',
+      :'ro_password'
+    )
+    WHERE NOT EXISTS (
+      SELECT FROM pg_roles
+      WHERE rolname = '{{ app_ro_username }}'
+    ) \gexec
+
+    SELECT format(
+      'CREATE ROLE {{ app_auditor_username }} LOGIN PASSWORD %L',
+      :'auditor_password'
+    )
+    WHERE NOT EXISTS (
+      SELECT FROM pg_roles
+      WHERE rolname = '{{ app_auditor_username }}'
+    ) \gexec
+
+    ALTER ROLE {{ app_rw_username }}
+      PASSWORD :'rw_password';
+
+    ALTER ROLE {{ app_ro_username }}
+      PASSWORD :'ro_password';
+
+    ALTER ROLE {{ app_auditor_username }}
+      PASSWORD :'auditor_password';
+
+    REVOKE ALL ON DATABASE {{ appdb_name }} FROM PUBLIC;
+
+    GRANT CONNECT ON DATABASE {{ appdb_name }}
+      TO {{ app_rw_username }},
+         {{ app_ro_username }},
+         {{ app_auditor_username }};
+
+    GRANT USAGE ON SCHEMA app
+      TO {{ app_rw_username }},
+         {{ app_ro_username }},
+         {{ app_auditor_username }};
+
+    GRANT SELECT, INSERT, UPDATE, DELETE
+      ON app.customers,
+         app.products,
+         app.orders,
+         app.order_items,
+         app.payments
+      TO {{ app_rw_username }};
+
+    GRANT USAGE, SELECT
+      ON SEQUENCE app.customers_id_seq,
+                  app.products_id_seq,
+                  app.orders_id_seq,
+                  app.order_items_id_seq,
+                  app.payments_id_seq
+      TO {{ app_rw_username }};
+
+    GRANT SELECT
+      ON app.customers,
+         app.products,
+         app.orders,
+         app.order_items,
+         app.payments,
+         app.order_summary,
+         app.customer_stats
+      TO {{ app_ro_username }};
+
+    GRANT SELECT
+      ON app.audit_log
+      TO {{ app_auditor_username }};
+
+    REVOKE ALL
+      ON app.audit_log
+      FROM {{ app_rw_username }},
+           {{ app_ro_username }};
+
+    GRANT EXECUTE
+      ON FUNCTION app.order_total(bigint)
+      TO {{ app_rw_username }},
+         {{ app_ro_username }};
+    SQL
+  no_log: true
+  changed_when: false

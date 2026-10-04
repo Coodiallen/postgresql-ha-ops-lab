@@ -1,0 +1,42 @@
+---
+- name: Install PostgreSQL client
+  ansible.builtin.apt:
+    name: postgresql-client
+    state: present
+    update_cache: true
+
+- name: Copy application schema
+  ansible.builtin.copy:
+    src: schema.sql
+    dest: /tmp/app-schema.sql
+    mode: "0644"
+
+- name: Ensure application database exists
+  ansible.builtin.shell: |
+    PGPASSWORD='{{ patroni_superuser_password }}' psql \
+      -h {{ proxy_vip }} \
+      -p {{ pgbouncer_port }} \
+      -U postgres \
+      -d postgres \
+      -v ON_ERROR_STOP=1 \
+      -At <<'SQL'
+    SELECT 'CREATE DATABASE {{ appdb_name }}'
+    WHERE NOT EXISTS (
+        SELECT FROM pg_database
+        WHERE datname = '{{ appdb_name }}'
+    ) \gexec
+    SQL
+  no_log: true
+  changed_when: false
+
+- name: Apply application schema and generated data
+  ansible.builtin.shell: |
+    PGPASSWORD='{{ patroni_superuser_password }}' psql \
+      -h {{ proxy_vip }} \
+      -p {{ pgbouncer_port }} \
+      -U postgres \
+      -d {{ appdb_name }} \
+      -v ON_ERROR_STOP=1 \
+      -f /tmp/app-schema.sql
+  no_log: true
+  changed_when: false
