@@ -1,0 +1,8 @@
+---
+proxy_vip: "192.168.60.20"
+proxy_interface: "eth1"
+
+haproxy_postgresql_port: 5000
+pgbouncer_port: 6432
+
+keepalived_virtual_router_id: 60

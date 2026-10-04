@@ -1,0 +1,44 @@
+---
+- name: Install Keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+    update_cache: true
+
+- name: Install proxy stack health check
+  ansible.builtin.copy:
+    dest: /usr/local/bin/check-proxy-stack
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+
+      systemctl is-active --quiet haproxy || exit 1
+
+      if systemctl list-unit-files --type=service --no-legend | grep -q '^pgbouncer.service'; then
+          systemctl is-active --quiet pgbouncer || exit 1
+      fi
+
+      exit 0
+  notify: Restart keepalived
+
+- name: Configure Keepalived
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart keepalived
+
+- name: Validate Keepalived configuration
+  ansible.builtin.command:
+    cmd: /usr/sbin/keepalived --config-test -f /etc/keepalived/keepalived.conf
+  changed_when: false
+
+- name: Ensure Keepalived is enabled and running
+  ansible.builtin.systemd_service:
+    name: keepalived
+    enabled: true
+    state: started

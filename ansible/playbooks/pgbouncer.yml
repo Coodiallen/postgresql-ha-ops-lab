@@ -1,0 +1,11 @@
+---
+- name: Configure PostgreSQL PgBouncer layer
+  hosts: proxies
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  roles:
+    - pgbouncer

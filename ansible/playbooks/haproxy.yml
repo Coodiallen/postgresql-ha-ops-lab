@@ -1,0 +1,8 @@
+---
+- name: Configure PostgreSQL HAProxy layer
+  hosts: proxies
+  become: true
+  gather_facts: true
+
+  roles:
+    - haproxy

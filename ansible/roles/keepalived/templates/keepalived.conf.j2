@@ -1,0 +1,38 @@
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_script chk_proxy_stack {
+    script "/usr/local/bin/check-proxy-stack"
+    interval 2
+    timeout 2
+    fall 2
+    rise 2
+    weight -60
+}
+
+vrrp_instance VI_POSTGRESQL {
+    state {{ "MASTER" if inventory_hostname == "proxy01" else "BACKUP" }}
+    interface {{ proxy_interface }}
+    virtual_router_id {{ keepalived_virtual_router_id }}
+    priority {{ 150 if inventory_hostname == "proxy01" else 100 }}
+    advert_int 1
+
+    unicast_src_ip {{ ansible_host }}
+
+    unicast_peer {
+{% for host in groups['proxies'] if host != inventory_hostname %}
+        {{ hostvars[host].ansible_host }}
+{% endfor %}
+    }
+
+    virtual_ipaddress {
+        {{ proxy_vip }}/24 dev {{ proxy_interface }}
+    }
+
+    track_script {
+        chk_proxy_stack
+    }
+}

@@ -1,0 +1,33 @@
+---
+- name: Install PgBouncer and PostgreSQL client
+  ansible.builtin.apt:
+    name:
+      - pgbouncer
+      - postgresql-client
+    state: present
+    update_cache: true
+
+- name: Configure PgBouncer
+  ansible.builtin.template:
+    src: pgbouncer.ini.j2
+    dest: /etc/pgbouncer/pgbouncer.ini
+    owner: root
+    group: postgres
+    mode: "0640"
+  notify: Restart pgbouncer
+
+- name: Configure PgBouncer users
+  ansible.builtin.template:
+    src: userlist.txt.j2
+    dest: /etc/pgbouncer/userlist.txt
+    owner: root
+    group: postgres
+    mode: "0640"
+  no_log: true
+  notify: Restart pgbouncer
+
+- name: Ensure PgBouncer is enabled and running
+  ansible.builtin.systemd_service:
+    name: pgbouncer
+    enabled: true
+    state: started

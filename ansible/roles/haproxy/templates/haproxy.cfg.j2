@@ -1,0 +1,29 @@
+global
+    daemon
+    maxconn 2048
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+
+defaults
+    mode tcp
+    timeout connect 5s
+    timeout client 30m
+    timeout server 30m
+    timeout check 5s
+
+frontend postgresql_primary
+    bind 0.0.0.0:{{ haproxy_postgresql_port }}
+    default_backend patroni_primary
+
+backend patroni_primary
+    mode tcp
+
+    option httpchk
+    http-check connect port 8008
+    http-check send meth GET uri /primary ver HTTP/1.1 hdr Host localhost
+    http-check expect status 200
+
+    default-server inter 2s fall 3 rise 2 on-marked-down shutdown-sessions
+
+{% for host in groups['postgres'] %}
+    server {{ host }} {{ hostvars[host].ansible_host }}:5432 check
+{% endfor %}
