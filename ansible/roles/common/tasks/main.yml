@@ -1,0 +1,42 @@
+---
+- name: Update APT cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - chrony
+      - curl
+      - gnupg
+      - htop
+      - jq
+      - unzip
+      - vim
+    state: present
+
+- name: Set timezone to UTC
+  ansible.builtin.command:
+    cmd: timedatectl set-timezone UTC
+  when: ansible_facts["date_time"]["tz"] != "UTC"
+  changed_when: true
+
+- name: Ensure chrony is enabled and running
+  ansible.builtin.service:
+    name: chrony
+    state: started
+    enabled: true
+
+- name: Add lab hosts to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} POSTGRESQL HA LAB"
+    block: |
+      192.168.60.11 pg01
+      192.168.60.12 pg02
+      192.168.60.13 pg03
+      192.168.60.21 proxy01
+      192.168.60.22 proxy02
+      192.168.60.30 ops01
