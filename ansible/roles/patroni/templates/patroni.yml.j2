@@ -1,0 +1,75 @@
+scope: "{{ patroni_scope }}"
+namespace: "{{ patroni_namespace }}"
+name: "{{ inventory_hostname }}"
+
+restapi:
+  listen: "0.0.0.0:8008"
+  connect_address: "{{ ansible_host }}:8008"
+
+etcd3:
+  hosts:
+{% for host in patroni_etcd_hosts %}
+    - "{{ host }}"
+{% endfor %}
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 256MB
+        password_encryption: scram-sha-256
+
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+
+  pg_hba:
+    - "local all all peer"
+    - "host replication {{ patroni_replication_username }} 192.168.60.0/24 scram-sha-256"
+    - "host all all 192.168.60.0/24 scram-sha-256"
+    - "host all all 127.0.0.1/32 scram-sha-256"
+
+postgresql:
+  listen: "0.0.0.0:5432"
+  connect_address: "{{ ansible_host }}:5432"
+
+  data_dir: "/var/lib/postgresql/{{ postgresql_version }}/patroni"
+  bin_dir: "/usr/lib/postgresql/{{ postgresql_version }}/bin"
+  pgpass: /var/lib/postgresql/.pgpass
+
+  authentication:
+    superuser:
+      username: postgres
+      password: "{{ patroni_superuser_password }}"
+    replication:
+      username: "{{ patroni_replication_username }}"
+      password: "{{ patroni_replication_password }}"
+    rewind:
+      username: "{{ patroni_rewind_username }}"
+      password: "{{ patroni_rewind_password }}"
+
+  parameters:
+    unix_socket_directories: "/var/run/postgresql"
+
+  create_replica_methods:
+    - basebackup
+
+  basebackup:
+    checkpoint: fast
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false
