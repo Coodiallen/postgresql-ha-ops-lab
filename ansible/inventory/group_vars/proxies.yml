@@ -1,6 +1,5 @@
 ---
 proxy_interface: "eth1"
 
-haproxy_postgresql_port: 5000
 
 keepalived_virtual_router_id: 60

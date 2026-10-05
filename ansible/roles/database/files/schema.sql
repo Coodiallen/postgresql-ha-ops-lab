@@ -107,3 +107,9 @@ FROM app.orders o
 JOIN app.order_items oi ON oi.order_id = o.id
 WHERE NOT EXISTS (SELECT 1 FROM app.payments)
 GROUP BY o.id, o.created_at;
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id
+    ON app.order_items(order_id);
+
+CREATE INDEX IF NOT EXISTS idx_orders_customer_created_at
+    ON app.orders(customer_id, created_at DESC);

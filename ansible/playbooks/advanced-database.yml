@@ -1,0 +1,259 @@
+---
+- name: Install benchmark tools
+  hosts: ops
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Disable automatic PostgreSQL cluster creation
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql-common/createcluster.conf
+        regexp: '^#?create_main_cluster'
+        line: 'create_main_cluster = false'
+        create: true
+        mode: "0644"
+
+    - name: Install PostgreSQL benchmark tools
+      ansible.builtin.apt:
+        name: "postgresql-{{ postgresql_version }}"
+        state: present
+        update_cache: true
+
+    - name: Stop and disable native PostgreSQL service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: stopped
+        enabled: false
+
+- name: Configure logical replication and pg_cron
+  hosts: postgres
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  tasks:
+    - name: Install pg_cron
+      ansible.builtin.apt:
+        name: "postgresql-{{ postgresql_version }}-cron"
+        state: present
+        update_cache: true
+
+    - name: Configure Patroni advanced PostgreSQL parameters
+      ansible.builtin.command:
+        argv:
+          - /opt/patroni/bin/patronictl
+          - -c
+          - /etc/patroni/patroni.yml
+          - edit-config
+          - "{{ patroni_scope }}"
+          - --pg
+          - wal_level=logical
+          - --pg
+          - shared_preload_libraries=pg_cron
+          - --pg
+          - cron.database_name=appdb
+          - --pg
+          - cron.use_background_workers=on
+          - --force
+      run_once: true
+      changed_when: false
+
+    - name: Wait for Patroni members to observe DCS changes
+      ansible.builtin.pause:
+        seconds: 15
+      run_once: true
+
+    - name: Restart PostgreSQL members with pending restart
+      ansible.builtin.command:
+        argv:
+          - /opt/patroni/bin/patronictl
+          - -c
+          - /etc/patroni/patroni.yml
+          - restart
+          - "{{ patroni_scope }}"
+          - --pending
+          - --force
+      register: advanced_restart
+      run_once: true
+      changed_when: "'Success: restart' in advanced_restart.stdout"
+      failed_when: advanced_restart.rc not in [0, 1]
+
+    - name: Detect PostgreSQL primary
+      become_user: postgres
+      ansible.builtin.command:
+        cmd: >-
+          /usr/lib/postgresql/{{ postgresql_version }}/bin/psql
+          -Atqc
+          "SELECT NOT pg_is_in_recovery();"
+      register: advanced_primary
+      changed_when: false
+
+    - name: Configure publication pg_cron and source objects
+      become_user: postgres
+      ansible.builtin.shell: |
+        /usr/lib/postgresql/{{ postgresql_version }}/bin/psql \
+          -d {{ appdb_name }} \
+          -v ON_ERROR_STOP=1 \
+          -v logical_password='{{ logical_replication_password }}' <<'SQL'
+
+        SELECT format(
+          'CREATE ROLE {{ logical_replication_username }} LOGIN REPLICATION PASSWORD %L',
+          :'logical_password'
+        )
+        WHERE NOT EXISTS (
+          SELECT FROM pg_roles
+          WHERE rolname = '{{ logical_replication_username }}'
+        ) \gexec
+
+        ALTER ROLE {{ logical_replication_username }}
+          PASSWORD :'logical_password';
+
+        CREATE TABLE IF NOT EXISTS app.logical_events (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            payload text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        GRANT CONNECT ON DATABASE {{ appdb_name }}
+          TO {{ logical_replication_username }};
+
+        GRANT USAGE ON SCHEMA app
+          TO {{ logical_replication_username }};
+
+        GRANT SELECT ON app.logical_events
+          TO {{ logical_replication_username }};
+
+        SELECT 'CREATE PUBLICATION app_events_pub FOR TABLE app.logical_events'
+        WHERE NOT EXISTS (
+          SELECT FROM pg_publication
+          WHERE pubname = 'app_events_pub'
+        ) \gexec
+
+        SELECT 'ALTER PUBLICATION app_events_pub ADD TABLE app.logical_events'
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM pg_publication_tables
+          WHERE pubname = 'app_events_pub'
+            AND schemaname = 'app'
+            AND tablename = 'logical_events'
+        ) \gexec
+
+        CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+        CREATE TABLE IF NOT EXISTS app.maintenance_log (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            note text NOT NULL,
+            executed_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        SELECT cron.schedule(
+          'ops-maintenance',
+          '* * * * *',
+          $job$
+          INSERT INTO app.maintenance_log(note)
+          VALUES ('pg_cron heartbeat')
+          $job$
+        )
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM cron.job
+          WHERE jobname = 'ops-maintenance'
+        );
+        SQL
+      when: advanced_primary.stdout == "t"
+      no_log: true
+      changed_when: false
+
+- name: Configure logical replication subscriber
+  hosts: restore
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  tasks:
+    - name: Create logical subscriber data directory
+      ansible.builtin.file:
+        path: "/var/lib/postgresql/{{ postgresql_version }}/logical"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0700"
+
+    - name: Initialize logical subscriber PostgreSQL
+      become_user: postgres
+      ansible.builtin.command:
+        cmd: >-
+          /usr/lib/postgresql/{{ postgresql_version }}/bin/initdb
+          -D /var/lib/postgresql/{{ postgresql_version }}/logical
+          --encoding=UTF8
+          --data-checksums
+      args:
+        creates: "/var/lib/postgresql/{{ postgresql_version }}/logical/PG_VERSION"
+
+    - name: Start logical subscriber PostgreSQL
+      become_user: postgres
+      ansible.builtin.shell: |
+        if ! /usr/lib/postgresql/{{ postgresql_version }}/bin/pg_isready \
+          -p 55433 >/dev/null 2>&1; then
+
+          /usr/lib/postgresql/{{ postgresql_version }}/bin/pg_ctl \
+            -D /var/lib/postgresql/{{ postgresql_version }}/logical \
+            -l /var/log/postgresql/logical-subscriber.log \
+            -o "-p 55433 -c listen_addresses=127.0.0.1" \
+            start
+        fi
+      changed_when: false
+
+    - name: Create subscriber database and table
+      become_user: postgres
+      ansible.builtin.shell: |
+        /usr/lib/postgresql/{{ postgresql_version }}/bin/psql \
+          -p 55433 \
+          -d postgres \
+          -v ON_ERROR_STOP=1 <<'SQL'
+
+        SELECT 'CREATE DATABASE logicaldb'
+        WHERE NOT EXISTS (
+          SELECT FROM pg_database
+          WHERE datname = 'logicaldb'
+        ) \gexec
+        SQL
+
+        /usr/lib/postgresql/{{ postgresql_version }}/bin/psql \
+          -p 55433 \
+          -d logicaldb \
+          -v ON_ERROR_STOP=1 <<'SQL'
+
+        CREATE SCHEMA IF NOT EXISTS app;
+
+        CREATE TABLE IF NOT EXISTS app.logical_events (
+            id bigint PRIMARY KEY,
+            payload text NOT NULL,
+            created_at timestamptz NOT NULL
+        );
+        SQL
+      changed_when: false
+
+    - name: Create logical replication subscription
+      become_user: postgres
+      ansible.builtin.shell: |
+        /usr/lib/postgresql/{{ postgresql_version }}/bin/psql \
+          -p 55433 \
+          -d logicaldb \
+          -v ON_ERROR_STOP=1 <<'SQL'
+
+        SELECT format(
+          'CREATE SUBSCRIPTION app_events_sub CONNECTION %L PUBLICATION app_events_pub WITH (copy_data = true)',
+          'host={{ proxy_vip }} port={{ haproxy_postgresql_port }} dbname={{ appdb_name }} user={{ logical_replication_username }} password={{ logical_replication_password }}'
+        )
+        WHERE NOT EXISTS (
+          SELECT FROM pg_subscription
+          WHERE subname = 'app_events_sub'
+        ) \gexec
+        SQL
+      no_log: true
+      changed_when: false

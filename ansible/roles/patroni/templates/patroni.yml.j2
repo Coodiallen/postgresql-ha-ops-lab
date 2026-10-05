@@ -23,12 +23,15 @@ bootstrap:
       use_pg_rewind: true
       use_slots: true
       parameters:
-        wal_level: replica
+        wal_level: logical
         hot_standby: "on"
         max_wal_senders: 10
         max_replication_slots: 10
         wal_keep_size: 256MB
         password_encryption: scram-sha-256
+        shared_preload_libraries: "pg_cron"
+        cron.database_name: "appdb"
+        cron.use_background_workers: "on"
         archive_mode: "on"
         archive_command: "pgbackrest --stanza={{ pgbackrest_stanza }} archive-push %p"
         restore_command: "pgbackrest --stanza={{ pgbackrest_stanza }} archive-get %f %p"

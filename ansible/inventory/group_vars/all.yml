@@ -23,3 +23,6 @@ pgbackrest_retention_diff: 4
 postgresql_version: "18"
 
 pgbackrest_package_version: "2.59.2-1.pgdg24.04+1"
+
+haproxy_postgresql_port: 5000
+logical_replication_username: "logical_replicator"
