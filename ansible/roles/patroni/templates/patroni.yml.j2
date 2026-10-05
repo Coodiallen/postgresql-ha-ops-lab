@@ -29,6 +29,10 @@ bootstrap:
         max_replication_slots: 10
         wal_keep_size: 256MB
         password_encryption: scram-sha-256
+        archive_mode: "on"
+        archive_command: "pgbackrest --stanza={{ pgbackrest_stanza }} archive-push %p"
+        restore_command: "pgbackrest --stanza={{ pgbackrest_stanza }} archive-get %f %p"
+        archive_timeout: 60s
 
   initdb:
     - encoding: UTF8

@@ -14,3 +14,8 @@ postgres_exporter_version: "0.20.1"
 prometheus_port: 9090
 grafana_port: 3000
 postgres_exporter_port: 9187
+
+pgbackrest_stanza: "postgresql-ha"
+pgbackrest_repo_path: "/var/lib/pgbackrest"
+pgbackrest_retention_full: 2
+pgbackrest_retention_diff: 4

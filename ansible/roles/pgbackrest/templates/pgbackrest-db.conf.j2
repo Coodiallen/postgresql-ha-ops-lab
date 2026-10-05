@@ -1,0 +1,8 @@
+[{{ pgbackrest_stanza }}]
+pg1-path=/var/lib/postgresql/18/patroni
+
+[global]
+repo1-host={{ hostvars[groups['ops'][0]].ansible_host }}
+repo1-host-user=pgbackrest
+log-level-console=info
+log-level-file=detail

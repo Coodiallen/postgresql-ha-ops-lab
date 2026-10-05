@@ -1,0 +1,18 @@
+[{{ pgbackrest_stanza }}]
+{% for host in groups['postgres'] %}
+pg{{ loop.index }}-host={{ hostvars[host].ansible_host }}
+pg{{ loop.index }}-host-user=postgres
+pg{{ loop.index }}-path=/var/lib/postgresql/18/patroni
+{% endfor %}
+
+[global]
+repo1-path={{ pgbackrest_repo_path }}
+repo1-retention-full={{ pgbackrest_retention_full }}
+repo1-retention-diff={{ pgbackrest_retention_diff }}
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass={{ pgbackrest_cipher_pass }}
+backup-standby=y
+start-fast=y
+process-max=2
+log-level-console=info
+log-level-file=detail

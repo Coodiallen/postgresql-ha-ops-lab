@@ -1,0 +1,99 @@
+---
+- name: Install pgBackRest
+  hosts:
+    - postgres
+    - ops
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  roles:
+    - pgbackrest
+
+- name: Authorize PostgreSQL nodes on repository
+  hosts: ops
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Create repository authorized keys
+      ansible.builtin.copy:
+        content: ""
+        dest: /var/lib/pgbackrest/.ssh/authorized_keys
+        force: false
+        owner: pgbackrest
+        group: pgbackrest
+        mode: "0600"
+
+    - name: Authorize PostgreSQL service accounts
+      ansible.builtin.lineinfile:
+        path: /var/lib/pgbackrest/.ssh/authorized_keys
+        line: "{{ hostvars[item].postgres_pgbackrest_public_key.stdout }}"
+      loop: "{{ groups['postgres'] }}"
+
+    - name: Trust PostgreSQL SSH hosts
+      become_user: pgbackrest
+      ansible.builtin.shell: |
+        ssh-keygen -F {{ hostvars[item].ansible_host }} \
+          -f /var/lib/pgbackrest/.ssh/known_hosts >/dev/null 2>&1 ||
+        ssh-keyscan -H {{ hostvars[item].ansible_host }} \
+          >> /var/lib/pgbackrest/.ssh/known_hosts
+      loop: "{{ groups['postgres'] }}"
+      changed_when: false
+
+- name: Authorize repository on PostgreSQL nodes
+  hosts: postgres
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Create postgres authorized keys
+      ansible.builtin.copy:
+        content: ""
+        dest: /var/lib/postgresql/.ssh/authorized_keys
+        force: false
+        owner: postgres
+        group: postgres
+        mode: "0600"
+
+    - name: Authorize repository service account
+      ansible.builtin.lineinfile:
+        path: /var/lib/postgresql/.ssh/authorized_keys
+        line: "{{ hostvars[groups['ops'][0]].repo_pgbackrest_public_key.stdout }}"
+
+    - name: Trust repository SSH host
+      become_user: postgres
+      ansible.builtin.shell: |
+        ssh-keygen -F {{ hostvars[groups['ops'][0]].ansible_host }} \
+          -f /var/lib/postgresql/.ssh/known_hosts >/dev/null 2>&1 ||
+        ssh-keyscan -H {{ hostvars[groups['ops'][0]].ansible_host }} \
+          >> /var/lib/postgresql/.ssh/known_hosts
+      changed_when: false
+
+- name: Configure WAL archiving in Patroni
+  hosts: postgres
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Configure pgBackRest archive parameters in Patroni DCS
+      ansible.builtin.command:
+        argv:
+          - /opt/patroni/bin/patronictl
+          - -c
+          - /etc/patroni/patroni.yml
+          - edit-config
+          - "{{ patroni_scope }}"
+          - --pg
+          - archive_mode=on
+          - --pg
+          - "archive_command=pgbackrest --stanza={{ pgbackrest_stanza }} archive-push %p"
+          - --pg
+          - "restore_command=pgbackrest --stanza={{ pgbackrest_stanza }} archive-get %f %p"
+          - --pg
+          - archive_timeout=60s
+          - --force
+      run_once: true
+      changed_when: false

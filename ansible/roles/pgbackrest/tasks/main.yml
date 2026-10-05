@@ -1,0 +1,151 @@
+---
+- name: Install pgBackRest repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - postgresql-common
+    state: present
+    update_cache: true
+
+- name: Create PGDG key directory
+  ansible.builtin.file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+    mode: "0755"
+
+- name: Install PGDG repository key
+  ansible.builtin.get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+    mode: "0644"
+
+- name: Configure PGDG repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pgdg.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://apt.postgresql.org/pub/repos/apt
+      Suites: {{ ansible_facts["distribution_release"] }}-pgdg
+      Architectures: amd64
+      Components: main
+      Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+
+- name: Install pgBackRest
+  ansible.builtin.apt:
+    name: pgbackrest
+    state: present
+    update_cache: true
+
+- name: Create pgBackRest repository user
+  ansible.builtin.user:
+    name: pgbackrest
+    system: true
+    home: /var/lib/pgbackrest
+    shell: /bin/bash
+    create_home: true
+  when: "'ops' in group_names"
+
+- name: Create pgBackRest repository directory
+  ansible.builtin.file:
+    path: /var/lib/pgbackrest
+    state: directory
+    owner: pgbackrest
+    group: pgbackrest
+    mode: "0750"
+  when: "'ops' in group_names"
+
+- name: Create postgres SSH directory
+  ansible.builtin.file:
+    path: /var/lib/postgresql/.ssh
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+  when: "'postgres' in group_names"
+
+- name: Generate postgres pgBackRest SSH key
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N '' -f /var/lib/postgresql/.ssh/id_ed25519
+    creates: /var/lib/postgresql/.ssh/id_ed25519
+  when: "'postgres' in group_names"
+
+- name: Create repository SSH directory
+  ansible.builtin.file:
+    path: /var/lib/pgbackrest/.ssh
+    state: directory
+    owner: pgbackrest
+    group: pgbackrest
+    mode: "0700"
+  when: "'ops' in group_names"
+
+- name: Generate repository SSH key
+  become_user: pgbackrest
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N '' -f /var/lib/pgbackrest/.ssh/id_ed25519
+    creates: /var/lib/pgbackrest/.ssh/id_ed25519
+  when: "'ops' in group_names"
+
+- name: Read postgres public key
+  ansible.builtin.command:
+    cmd: cat /var/lib/postgresql/.ssh/id_ed25519.pub
+  register: postgres_pgbackrest_public_key
+  changed_when: false
+  when: "'postgres' in group_names"
+
+- name: Read repository public key
+  ansible.builtin.command:
+    cmd: cat /var/lib/pgbackrest/.ssh/id_ed25519.pub
+  register: repo_pgbackrest_public_key
+  changed_when: false
+  when: "'ops' in group_names"
+
+- name: Create pgBackRest configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/pgbackrest
+    - /etc/pgbackrest/conf.d
+
+- name: Create pgBackRest log directory on PostgreSQL hosts
+  ansible.builtin.file:
+    path: /var/log/pgbackrest
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0770"
+  when: "'postgres' in group_names"
+
+- name: Create pgBackRest log directory on repository host
+  ansible.builtin.file:
+    path: /var/log/pgbackrest
+    state: directory
+    owner: pgbackrest
+    group: pgbackrest
+    mode: "0770"
+  when: "'ops' in group_names"
+
+- name: Configure pgBackRest on PostgreSQL host
+  ansible.builtin.template:
+    src: pgbackrest-db.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: root
+    group: postgres
+    mode: "0640"
+  when: "'postgres' in group_names"
+
+- name: Configure pgBackRest repository host
+  ansible.builtin.template:
+    src: pgbackrest-repo.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: root
+    group: pgbackrest
+    mode: "0640"
+  when: "'ops' in group_names"
