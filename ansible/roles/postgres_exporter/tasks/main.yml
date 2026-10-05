@@ -1,0 +1,48 @@
+---
+- name: Create postgres exporter user
+  ansible.builtin.user:
+    name: postgres_exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Download postgres exporter
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus-community/postgres_exporter/releases/download/v{{ postgres_exporter_version }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.tar.gz"
+    mode: "0644"
+
+- name: Extract postgres exporter
+  ansible.builtin.unarchive:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+
+- name: Install postgres exporter binary
+  ansible.builtin.copy:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+    dest: /usr/local/bin/postgres_exporter
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  notify: Restart postgres exporter
+
+- name: Install postgres exporter service
+  ansible.builtin.template:
+    src: postgres-exporter.service.j2
+    dest: /etc/systemd/system/postgres-exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart postgres exporter
+
+- name: Ensure postgres exporter is enabled and running
+  ansible.builtin.systemd_service:
+    name: postgres-exporter
+    enabled: true
+    state: started
+    daemon_reload: true

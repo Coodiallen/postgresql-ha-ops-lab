@@ -1,0 +1,45 @@
+---
+- name: Configure monitoring PostgreSQL role
+  hosts: postgres
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  tasks:
+    - name: Detect PostgreSQL primary
+      become_user: postgres
+      ansible.builtin.command:
+        cmd: >-
+          /usr/lib/postgresql/{{ postgresql_version }}/bin/psql
+          -Atqc
+          "SELECT NOT pg_is_in_recovery();"
+      register: primary_check
+      changed_when: false
+      failed_when: false
+
+    - name: Configure monitoring role on primary
+      become_user: postgres
+      ansible.builtin.shell: |
+        /usr/lib/postgresql/{{ postgresql_version }}/bin/psql \
+          -v ON_ERROR_STOP=1 \
+          -v monitoring_password='{{ monitoring_password }}' <<'SQL'
+
+        SELECT format(
+          'CREATE ROLE monitoring LOGIN PASSWORD %L',
+          :'monitoring_password'
+        )
+        WHERE NOT EXISTS (
+          SELECT FROM pg_roles WHERE rolname = 'monitoring'
+        ) \gexec
+
+        ALTER ROLE monitoring PASSWORD :'monitoring_password';
+
+        GRANT pg_monitor TO monitoring;
+        SQL
+      when:
+        - primary_check.rc == 0
+        - primary_check.stdout == "t"
+      no_log: true
+      changed_when: false

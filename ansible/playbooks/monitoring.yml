@@ -1,0 +1,23 @@
+---
+- name: Configure PostgreSQL monitoring user
+  import_playbook: monitoring-db-user.yml
+
+- name: Configure PostgreSQL exporters
+  hosts: postgres
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../inventory/secrets/postgres.yml
+
+  roles:
+    - postgres_exporter
+
+- name: Configure monitoring stack
+  hosts: ops
+  become: true
+  gather_facts: true
+
+  roles:
+    - prometheus
+    - grafana

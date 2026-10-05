@@ -1,0 +1,16 @@
+[Unit]
+Description=Prometheus PostgreSQL Exporter
+After=network-online.target patroni.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=postgres_exporter
+Group=postgres_exporter
+Environment="DATA_SOURCE_NAME=postgresql://monitoring:{{ monitoring_password }}@127.0.0.1:5432/postgres?sslmode=disable"
+ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=:{{ postgres_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

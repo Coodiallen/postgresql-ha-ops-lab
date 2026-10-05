@@ -7,3 +7,10 @@ app_auditor_username: "app_auditor"
 
 proxy_vip: "192.168.60.20"
 pgbouncer_port: 6432
+
+prometheus_version: "3.15.0"
+postgres_exporter_version: "0.20.1"
+
+prometheus_port: 9090
+grafana_port: 3000
+postgres_exporter_port: 9187
