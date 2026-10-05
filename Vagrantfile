@@ -12,7 +12,8 @@ Vagrant.configure("2") do |config|
     "pg03"    => { ip: "192.168.60.13", memory: 1536, cpus: 2 },
     "proxy01" => { ip: "192.168.60.21", memory: 512,  cpus: 1 },
     "proxy02" => { ip: "192.168.60.22", memory: 512,  cpus: 1 },
-    "ops01"   => { ip: "192.168.60.30", memory: 2048, cpus: 2 }
+    "ops01"     => { ip: "192.168.60.30", memory: 2048, cpus: 2 },
+    "restore01" => { ip: "192.168.60.40", memory: 1536, cpus: 2 }
   }
 
   nodes.each do |name, node|

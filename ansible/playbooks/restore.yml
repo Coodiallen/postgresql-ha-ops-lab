@@ -1,0 +1,19 @@
+---
+- name: Configure PITR restore host
+  hosts: restore
+  become: true
+  gather_facts: true
+
+  roles:
+    - pitr_restore
+
+- name: Authorize restore host on backup repository
+  hosts: ops
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Authorize restore PostgreSQL account
+      ansible.builtin.lineinfile:
+        path: /var/lib/pgbackrest/.ssh/authorized_keys
+        line: "{{ hostvars[groups['restore'][0]].restore_pgbackrest_public_key.stdout }}"

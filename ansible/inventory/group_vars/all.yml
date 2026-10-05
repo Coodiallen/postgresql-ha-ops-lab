@@ -19,3 +19,7 @@ pgbackrest_stanza: "postgresql-ha"
 pgbackrest_repo_path: "/var/lib/pgbackrest"
 pgbackrest_retention_full: 2
 pgbackrest_retention_diff: 4
+
+postgresql_version: "18"
+
+pgbackrest_package_version: "2.59.2-1.pgdg24.04+1"

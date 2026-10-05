@@ -35,8 +35,9 @@
 
 - name: Install pgBackRest
   ansible.builtin.apt:
-    name: pgbackrest
+    name: "pgbackrest={{ pgbackrest_package_version }}"
     state: present
+    allow_downgrade: true
     update_cache: true
 
 - name: Create pgBackRest repository user

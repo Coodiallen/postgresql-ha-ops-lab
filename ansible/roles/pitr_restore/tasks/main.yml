@@ -1,0 +1,116 @@
+---
+- name: Install PostgreSQL repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - postgresql-common
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: Disable automatic PostgreSQL cluster creation
+  ansible.builtin.lineinfile:
+    path: /etc/postgresql-common/createcluster.conf
+    regexp: '^#?create_main_cluster'
+    line: 'create_main_cluster = false'
+    create: true
+    mode: "0644"
+
+- name: Create PGDG key directory
+  ansible.builtin.file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+    mode: "0755"
+
+- name: Install PGDG repository key
+  ansible.builtin.get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+    mode: "0644"
+
+- name: Configure PGDG repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pgdg.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://apt.postgresql.org/pub/repos/apt
+      Suites: {{ ansible_facts["distribution_release"] }}-pgdg
+      Architectures: amd64
+      Components: main
+      Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+
+- name: Install PostgreSQL and pgBackRest
+  ansible.builtin.apt:
+    name:
+      - postgresql-{{ postgresql_version }}
+      - postgresql-client-{{ postgresql_version }}
+      - "pgbackrest={{ pgbackrest_package_version }}"
+    state: present
+    allow_downgrade: true
+    update_cache: true
+
+- name: Stop and disable native PostgreSQL service
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+    enabled: false
+
+- name: Create restore directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /etc/pgbackrest
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /etc/pgbackrest/conf.d
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /var/log/pgbackrest
+      owner: postgres
+      group: postgres
+      mode: "0770"
+    - path: /var/lib/postgresql/.ssh
+      owner: postgres
+      group: postgres
+      mode: "0700"
+    - path: /var/lib/postgresql/18/restore
+      owner: postgres
+      group: postgres
+      mode: "0700"
+
+- name: Generate restore SSH key
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N '' -f /var/lib/postgresql/.ssh/id_ed25519
+    creates: /var/lib/postgresql/.ssh/id_ed25519
+
+- name: Read restore public key
+  ansible.builtin.command:
+    cmd: cat /var/lib/postgresql/.ssh/id_ed25519.pub
+  register: restore_pgbackrest_public_key
+  changed_when: false
+
+- name: Configure pgBackRest restore client
+  ansible.builtin.template:
+    src: pgbackrest.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: root
+    group: postgres
+    mode: "0640"
+
+- name: Trust pgBackRest repository host
+  become_user: postgres
+  ansible.builtin.shell: |
+    ssh-keygen -F {{ hostvars[groups['ops'][0]].ansible_host }} \
+      -f /var/lib/postgresql/.ssh/known_hosts >/dev/null 2>&1 ||
+    ssh-keyscan -H {{ hostvars[groups['ops'][0]].ansible_host }} \
+      >> /var/lib/postgresql/.ssh/known_hosts
+  changed_when: false
