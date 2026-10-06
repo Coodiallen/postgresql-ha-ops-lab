@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ansible-validation:
+    name: Ansible validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ansible-core
+
+      - name: Create CI secrets
+        working-directory: ansible
+        run: |
+          mkdir -p inventory/secrets
+
+          cat > inventory/secrets/postgres.yml <<'SECRETS'
+          ---
+          patroni_superuser_password: "ci-placeholder"
+          patroni_replication_password: "ci-placeholder"
+          patroni_rewind_password: "ci-placeholder"
+
+          app_rw_password: "ci-placeholder"
+          app_ro_password: "ci-placeholder"
+          app_auditor_password: "ci-placeholder"
+
+          monitoring_password: "ci-placeholder"
+
+          pgbackrest_cipher_pass: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+          logical_replication_password: "ci-placeholder"
+          SECRETS
+
+      - name: Validate all Ansible playbooks
+        working-directory: ansible
+        run: |
+          set -euo pipefail
+
+          for playbook in playbooks/*.yml; do
+            echo "Checking ${playbook}"
+            ansible-playbook "${playbook}" --syntax-check
+          done
+
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/ha-failover-test.sh
