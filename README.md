@@ -1,8 +1,8 @@
 # PostgreSQL HA Ops Lab
 
-A hands-on PostgreSQL/DevOps lab I built to practice running a small highly available database platform rather than just installing PostgreSQL on a single VM.
+A small PostgreSQL HA lab built with Vagrant, libvirt and Ansible.
 
-The whole environment runs on Vagrant + libvirt and is configured with Ansible.
+The idea was to build and test a PostgreSQL setup with failover, connection pooling, monitoring, backups and recovery across several VMs.
 
 ## Architecture
 
@@ -24,59 +24,40 @@ Client  ──>  Keepalived VIP :6432
 ops01
 ├── Prometheus
 ├── Grafana
-└── pgBackRest repository
+└── pgBackRest
 
 restore01
-├── isolated PITR restore
+├── PITR restore
 └── logical replication subscriber
 ```
 
-The PostgreSQL cluster consists of three Patroni nodes with etcd used as the distributed configuration store. Two proxy nodes provide a floating VIP, connection pooling and routing to the current primary.
+The PostgreSQL cluster runs on three Patroni nodes with etcd. Two proxy nodes provide a floating VIP, PgBouncer connection pooling and HAProxy routing to the current primary.
 
-## What is included
+## What's in the lab
 
-- PostgreSQL 18 HA cluster with Patroni and etcd
-- HAProxy + Keepalived VIP
-- PgBouncer transaction pooling
-- Ansible-based configuration
-- application schema, RBAC and audit triggers
-- Prometheus, Grafana and PostgreSQL metrics
-- encrypted pgBackRest backups and WAL archiving
-- point-in-time recovery on an isolated restore host
+- PostgreSQL 18 + Patroni + etcd
+- HAProxy, Keepalived and PgBouncer
+- Prometheus and Grafana monitoring
+- pgBackRest backups and WAL archiving
+- point-in-time recovery
 - logical replication
-- pg_cron jobs
-- pgbench testing and query/index tuning
-- automated HA failover validation
-- GitHub Actions syntax validation
+- pg_cron
+- RBAC and audit triggers
+- pgbench and basic query tuning
+- Ansible automation
+- GitHub Actions validation
 
-## What I tested
+## Tested scenarios
 
-This lab was not only deployed — I intentionally broke parts of it to check how they recover.
+I tested PostgreSQL failover by stopping Patroni on the primary. Another node became primary, writes continued through the same VIP, and the old primary later rejoined as a replica.
 
-PostgreSQL primary failover was tested by stopping Patroni on the leader. A new primary was elected, writes continued through the same VIP, and the old primary successfully rejoined as a replica.
+I also tested proxy failover by stopping Keepalived on the active proxy. The VIP moved to the second proxy and database access continued normally.
 
-Keepalived failover was also tested by stopping the active proxy. The VIP moved from `proxy01` to `proxy02`, database writes continued, and the VIP returned after the original node came back.
+For recovery testing, I deleted data from the live database and restored it on `restore01` to a restore point created before the deletion.
 
-pgBackRest was tested with a real PITR scenario: data was deleted from the live database and restored on `restore01` to a named restore point from before the deletion.
+As a small performance test, an index changed one query from a sequential scan over about 150k rows to an index scan, reducing execution time from roughly **8.5 ms to 0.09 ms**.
 
-For one test query, adding the proper index changed the plan from a sequential scan over ~150k rows to an index scan and reduced execution time from about **8.5 ms to 0.09 ms**.
-
-## Lab nodes
-
-```text
-pg01       192.168.60.11
-pg02       192.168.60.12
-pg03       192.168.60.13
-
-VIP        192.168.60.20
-proxy01    192.168.60.21
-proxy02    192.168.60.22
-
-ops01      192.168.60.30
-restore01  192.168.60.40
-```
-
-## Running the lab
+## Running it
 
 Start the VMs:
 
@@ -84,32 +65,21 @@ Start the VMs:
 vagrant up
 ```
 
-Ansible configuration is split into small playbooks under `ansible/playbooks/`.
-
-The general deployment order is:
+Ansible playbooks are in:
 
 ```text
-common
-  → etcd
-  → patroni
-  → haproxy
-  → keepalived
-  → pgbouncer
-  → database
-  → monitoring
-  → backup / restore
-  → advanced database features
+ansible/playbooks/
 ```
 
-Passwords and other local secrets are stored in:
+Local passwords and other secrets are stored in:
 
 ```text
 ansible/inventory/secrets/postgres.yml
 ```
 
-This directory is ignored by Git.
+and are excluded from Git.
 
-The HA validation script can be run with:
+HA failover can be tested with:
 
 ```bash
 ./scripts/ha-failover-test.sh
