@@ -114,9 +114,3 @@ The HA validation script can be run with:
 ```bash
 ./scripts/ha-failover-test.sh
 ```
-
-## Why I built it
-
-The main goal was to get practical experience with PostgreSQL operations around the database itself: HA, failover, connection routing, backups, recovery, monitoring, replication and basic performance troubleshooting.
-
-It is a lab, not a production-ready PostgreSQL platform, but most of the scenarios here were implemented and tested rather than only described in configuration files.
